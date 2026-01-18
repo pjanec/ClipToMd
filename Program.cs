@@ -1,10 +1,11 @@
+using ReverseMarkdown;
+using ReverseMarkdown.Converters;
 using System;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
-using ReverseMarkdown;
 
 namespace VsCodeToMd
 {
@@ -188,13 +189,49 @@ namespace VsCodeToMd
 
         private string RemoveVsCodeLinks(string html)
         {
-            // Replace <a href="vscode-file://...">Content</a> with just Content
-            // We use a regex to match anchor tags where href starts with vscode-file://
-            
-            return Regex.Replace(html, 
-                @"<a\s+[^>]*href=[""']vscode-file://[^""']*[""'][^>]*>(.*?)</a>", 
-                "$1", 
+            /* PSEUDOCODE / PLAN:
+             - Input: html string potentially containing:
+               - <a href="vscode-file://...">...</a> links (wrap text or images)
+               - <img src="vscode-file://..." ...> elements
+               - Markdown image syntax like ![](vscode-file://...)
+             - Goal: Remove or neutralize VS Code filesystem references so the Markdown converter
+               doesn't try to embed or reference local vscode-file URIs.
+             - Steps:
+               1. Remove any <img ... src="vscode-file://..."> entirely (replace with empty string).
+                  - Handle single or double quotes, attributes in any order, optional trailing slash.
+               2. Replace <a ... href="vscode-file://...">INNER</a> with INNER (preserve inner HTML/text).
+                  - Use a regex that captures the inner content (non-greedy, singleline so inner HTML allowed).
+               3. Remove Markdown-style image references that point to vscode-file:// URIs:
+                  - Pattern: ![alt](vscode-file://...)
+               4. Return cleaned HTML.
+               - Use RegexOptions.IgnoreCase | RegexOptions.Singleline for robust matching.
+             */
+
+            if (string.IsNullOrEmpty(html))
+                return html;
+
+            // 1) Remove <img ... src="vscode-file://..."> (self-closing or not)
+            html = Regex.Replace(
+                html,
+                @"<img\b[^>]*\bsrc\s*=\s*[""']vscode-file://[^""']*[""'][^>]*\/?>",
+                string.Empty,
                 RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+            // 2) Replace <a ... href="vscode-file://...">INNER</a> with INNER
+            html = Regex.Replace(
+                html,
+                @"<a\s+[^>]*\bhref\s*=\s*[""']vscode-file://[^""']*[""'][^>]*>(.*?)</a>",
+                "$1",
+                RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+            // 3) Remove Markdown-style images referencing vscode-file:// e.g. ![](vscode-file://...)
+            html = Regex.Replace(
+                html,
+                @"!\[.*?\]\(\s*vscode-file://[^)]*\)",
+                string.Empty,
+                RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+            return html;
         }
 
         // VS Code and Windows Clipboard add headers (StartHTML, EndHTML, etc.)
