@@ -2,8 +2,10 @@ using ReverseMarkdown;
 using ReverseMarkdown.Converters;
 using System;
 using System.Drawing;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
@@ -22,47 +24,91 @@ namespace VsCodeToMd
         }
     }
 
+    public class AppSettings
+    {
+        public int HotkeyKey { get; set; } = (int)Keys.M;
+        public int HotkeyModifiers { get; set; } = (int)(KeyModifiers.Control | KeyModifiers.Shift);
+        public bool AutoConvertVsCode { get; set; } = true;
+        public bool AutoConvertAny { get; set; } = false;
+    }
+
     public class SysTrayAppContext : ApplicationContext
     {
         private NotifyIcon _notifyIcon;
         private ContextMenuStrip _contextMenu;
         private GlobalHotkey _hotkey;
-        private bool _isActive = true;
+        private bool _isActive = false;
         private ConfigForm _configForm;
 
         private ClipboardMonitor _clipboardMonitor;
-        private bool _autoConvertVsCode = true;
-        private bool _autoConvertAny = false;
-        
-        // Default: Ctrl + Alt + M
-        private Keys _currentKey = Keys.M;
-        private KeyModifiers _currentModifier = KeyModifiers.Control | KeyModifiers.Alt;
+        private AppSettings _settings;
+        private string _settingsPath;
 
         public SysTrayAppContext()
         {
+            LoadSettings();
             InitializeContext();
             RegisterHotKey();
             InitializeClipboardMonitor();
+        }
+
+        private void LoadSettings()
+        {
+            try
+            {
+                string appData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClipToMd");
+                Directory.CreateDirectory(appData);
+                _settingsPath = Path.Combine(appData, "settings.json");
+
+                if (File.Exists(_settingsPath))
+                {
+                    string json = File.ReadAllText(_settingsPath);
+                    _settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+                }
+                else
+                {
+                    _settings = new AppSettings();
+                }
+            }
+            catch
+            {
+                _settings = new AppSettings();
+            }
+        }
+
+        private void SaveSettings()
+        {
+            try
+            {
+                string json = JsonSerializer.Serialize(_settings);
+                File.WriteAllText(_settingsPath, json);
+            }
+            catch (Exception ex)
+            {
+                _notifyIcon.ShowBalloonTip(3000, "Error", "Failed to save settings: " + ex.Message, ToolTipIcon.Error);
+            }
         }
 
         private void InitializeContext()
         {
             // Create Context Menu
             _contextMenu = new ContextMenuStrip();
-            ((ToolStripMenuItem)_contextMenu.Items.Add("Active", null, ToggleActive)).Checked = true;
-            ((ToolStripMenuItem)_contextMenu.Items.Add("Auto: VS Code Only", null, ToggleAutoConvertVsCode)).Checked = true;
-            ((ToolStripMenuItem)_contextMenu.Items.Add("Auto: All HTML", null, ToggleAutoConvertAny)).Checked = false;
+            ((ToolStripMenuItem)_contextMenu.Items.Add("Active", null, ToggleActive)).Checked = false;
+            ((ToolStripMenuItem)_contextMenu.Items.Add("Auto: VS Code Only", null, ToggleAutoConvertVsCode)).Checked = _settings.AutoConvertVsCode;
+            ((ToolStripMenuItem)_contextMenu.Items.Add("Auto: All HTML", null, ToggleAutoConvertAny)).Checked = _settings.AutoConvertAny;
             _contextMenu.Items.Add(new ToolStripSeparator());
             _contextMenu.Items.Add("Set Hotkey...", null, ShowConfig);
             _contextMenu.Items.Add("Exit", null, Exit);
 
             // Create Tray Icon (Drawing one programmatically to avoid external .ico files)
             _notifyIcon = new NotifyIcon();
-            _notifyIcon.Icon = GenerateIcon(Color.DodgerBlue);
+            // Icon and Text will be set by SetActiveState
             _notifyIcon.ContextMenuStrip = _contextMenu;
             _notifyIcon.Visible = true;
-            _notifyIcon.Text = "VSCode HTML to Markdown (Ctrl+Alt+M)";
             _notifyIcon.DoubleClick += ToggleActive;
+
+            // Set initial state
+            SetActiveState(false);
         }
 
         private void InitializeClipboardMonitor()
@@ -74,7 +120,7 @@ namespace VsCodeToMd
         private void OnClipboardChanged(object sender, EventArgs e)
         {
             if (!_isActive) return;
-            if (!_autoConvertVsCode && !_autoConvertAny) return;
+            if (!_settings.AutoConvertVsCode && !_settings.AutoConvertAny) return;
             
             // Only proceed if it looks like HTML
             if (!Clipboard.ContainsText(TextDataFormat.Html)) return;
@@ -84,11 +130,11 @@ namespace VsCodeToMd
                 string rawHtml = Clipboard.GetText(TextDataFormat.Html);
                 bool shouldConvert = false;
                 
-                if (_autoConvertAny)
+                if (_settings.AutoConvertAny)
                 {
                     shouldConvert = true;
                 }
-                else if (_autoConvertVsCode)
+                else if (_settings.AutoConvertVsCode)
                 {
                     // Check specifically for VS Code signature
                     // Relaxed check to catch Cursor and potential variants
@@ -114,22 +160,25 @@ namespace VsCodeToMd
             if (_hotkey != null) _hotkey.Dispose();
             
             _hotkey = new GlobalHotkey();
-            _hotkey.Register(_currentModifier, _currentKey);
-            _hotkey.KeyPressed += OnHotkeyPressed;
+            try
+            {
+                _hotkey.Register((KeyModifiers)_settings.HotkeyModifiers, (Keys)_settings.HotkeyKey);
+                _hotkey.KeyPressed += OnHotkeyPressed;
+            }
+            catch (Exception ex)
+            {
+                _notifyIcon.ShowBalloonTip(3000, "Error", "Could not register hotkey: " + ex.Message, ToolTipIcon.Error);
+            }
         }
 
         private void OnHotkeyPressed(object sender, EventArgs e)
         {
-            if (!_isActive) return;
-
-            try
-            {
-                ProcessClipboard(isAuto: false);
-            }
-            catch (Exception ex)
-            {
-                _notifyIcon.ShowBalloonTip(3000, "Error", ex.Message, ToolTipIcon.Error);
-            }
+            // Toggle Active State
+            ToggleActive(sender, e);
+            
+            // Show notification bubble
+            string state = _isActive ? "Activated" : "Deactivated";
+            _notifyIcon.ShowBalloonTip(1000, "ClipToMd", $"Tool is now {state}", ToolTipIcon.Info);
         }
 
         private void ProcessClipboard(bool isAuto, string preLoadedHtml = null)
@@ -189,24 +238,6 @@ namespace VsCodeToMd
 
         private string RemoveVsCodeLinks(string html)
         {
-            /* PSEUDOCODE / PLAN:
-             - Input: html string potentially containing:
-               - <a href="vscode-file://...">...</a> links (wrap text or images)
-               - <img src="vscode-file://..." ...> elements
-               - Markdown image syntax like ![](vscode-file://...)
-             - Goal: Remove or neutralize VS Code filesystem references so the Markdown converter
-               doesn't try to embed or reference local vscode-file URIs.
-             - Steps:
-               1. Remove any <img ... src="vscode-file://..."> entirely (replace with empty string).
-                  - Handle single or double quotes, attributes in any order, optional trailing slash.
-               2. Replace <a ... href="vscode-file://...">INNER</a> with INNER (preserve inner HTML/text).
-                  - Use a regex that captures the inner content (non-greedy, singleline so inner HTML allowed).
-               3. Remove Markdown-style image references that point to vscode-file:// URIs:
-                  - Pattern: ![alt](vscode-file://...)
-               4. Return cleaned HTML.
-               - Use RegexOptions.IgnoreCase | RegexOptions.Singleline for robust matching.
-             */
-
             if (string.IsNullOrEmpty(html))
                 return html;
 
@@ -234,12 +265,8 @@ namespace VsCodeToMd
             return html;
         }
 
-        // VS Code and Windows Clipboard add headers (StartHTML, EndHTML, etc.)
-        // We need to parse this or regex for the fragment comment.
         private string ExtractFragment(string rawHtml)
         {
-            // Reliable Method: Look for <!--StartFragment--> and <!--EndFragment-->
-            // VS Code explicitly puts these in.
             string startMarker = "<!--StartFragment-->";
             string endMarker = "<!--EndFragment-->";
 
@@ -252,49 +279,56 @@ namespace VsCodeToMd
                 return rawHtml.Substring(start, end - start);
             }
 
-            // Fallback: Return raw html if markers missing (rare for VS Code)
             return rawHtml;
         }
 
-        private void ToggleActive(object sender, EventArgs e)
+        private void SetActiveState(bool active)
         {
-            _isActive = !_isActive;
+            _isActive = active;
             ((ToolStripMenuItem)_contextMenu.Items[0]).Checked = _isActive;
             _notifyIcon.Icon = GenerateIcon(_isActive ? Color.DodgerBlue : Color.Gray);
             _notifyIcon.Text = _isActive ? $"Active ({GetHotkeyString()})" : "Inactive";
         }
 
+        private void ToggleActive(object sender, EventArgs e)
+        {
+            SetActiveState(!_isActive);
+        }
+
         private void ToggleAutoConvertVsCode(object sender, EventArgs e)
         {
-            _autoConvertVsCode = !_autoConvertVsCode;
-            ((ToolStripMenuItem)_contextMenu.Items[1]).Checked = _autoConvertVsCode;
-            
-            // If we turn ON "VS Code Only", we might want to turn OFF "All HTML" to avoid confusion, 
-            // or just leave them independent. Independent is simpler logic.
+            _settings.AutoConvertVsCode = !_settings.AutoConvertVsCode;
+            ((ToolStripMenuItem)_contextMenu.Items[1]).Checked = _settings.AutoConvertVsCode;
+            SaveSettings();
         }
 
         private void ToggleAutoConvertAny(object sender, EventArgs e)
         {
-            _autoConvertAny = !_autoConvertAny;
-            ((ToolStripMenuItem)_contextMenu.Items[2]).Checked = _autoConvertAny;
+            _settings.AutoConvertAny = !_settings.AutoConvertAny;
+            ((ToolStripMenuItem)_contextMenu.Items[2]).Checked = _settings.AutoConvertAny;
+            SaveSettings();
         }
 
         private string GetHotkeyString()
         {
-            return $"{_currentModifier} + {_currentKey}";
+            return $"{(KeyModifiers)_settings.HotkeyModifiers} + {(Keys)_settings.HotkeyKey}";
         }
 
         private void ShowConfig(object sender, EventArgs e)
         {
             if (_configForm == null || _configForm.IsDisposed)
             {
-                _configForm = new ConfigForm();
+                _configForm = new ConfigForm((Keys)_settings.HotkeyKey, (KeyModifiers)_settings.HotkeyModifiers);
                 if (_configForm.ShowDialog() == DialogResult.OK)
                 {
-                    _currentKey = _configForm.SelectedKey;
-                    _currentModifier = _configForm.SelectedModifiers;
+                    _settings.HotkeyKey = (int)_configForm.SelectedKey;
+                    _settings.HotkeyModifiers = (int)_configForm.SelectedModifiers;
+                    SaveSettings();
                     RegisterHotKey();
-                    _notifyIcon.Text = $"VSCode HTML to Markdown ({GetHotkeyString()})";
+                    
+                    // Update tooltip if active
+                    if (_isActive)
+                        _notifyIcon.Text = $"Active ({GetHotkeyString()})";
                 }
             }
         }
@@ -307,7 +341,6 @@ namespace VsCodeToMd
             Application.Exit();
         }
 
-        // Helper to draw a simple tray icon so you don't need an .ico file
         private Icon GenerateIcon(Color color)
         {
             Bitmap bmp = new Bitmap(16, 16);
@@ -429,11 +462,14 @@ namespace VsCodeToMd
     public class ConfigForm : Form
     {
         private Label _lblInfo;
-        public Keys SelectedKey { get; private set; } = Keys.M;
-        public KeyModifiers SelectedModifiers { get; private set; } = KeyModifiers.Control | KeyModifiers.Alt;
+        public Keys SelectedKey { get; private set; }
+        public KeyModifiers SelectedModifiers { get; private set; }
 
-        public ConfigForm()
+        public ConfigForm(Keys currentKey, KeyModifiers currentModifiers)
         {
+            SelectedKey = currentKey;
+            SelectedModifiers = currentModifiers;
+
             this.Size = new Size(300, 150);
             this.Text = "Set Hotkey";
             this.StartPosition = FormStartPosition.CenterScreen;
@@ -441,7 +477,7 @@ namespace VsCodeToMd
             this.KeyPreview = true;
 
             _lblInfo = new Label { 
-                Text = "Press any key combination...\n\nCurrent: Ctrl + Alt + M", 
+                Text = $"Press any key combination...\n\nCurrent: {SelectedModifiers} + {SelectedKey}", 
                 Dock = DockStyle.Fill, 
                 TextAlign = ContentAlignment.MiddleCenter,
                 Font = new Font("Segoe UI", 10)

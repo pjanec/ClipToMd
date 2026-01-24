@@ -7,7 +7,7 @@
 *   **Smart Auto-Conversion**: 
     *   **VS Code / Cursor (Default)**: Automatically detects and converts content copied from code editors like VS Code or Cursor or Antigravity (stripping local `vscode-file://` links while keeping text).
     *   **All HTML (Optional)**: Can be toggled to automatically convert *any* HTML content copied to the clipboard.
-*   **Manual Hotkey**: Press `Ctrl` + `Alt` + `M` (customizable) to instantly convert current clipboard content.
+*   **Global Hotkey**: Press `Ctrl` + `Shift` + `M` (customizable) to **Toggle Active/Inactive** state.
 *   **Clean Output**: Uses [ReverseMarkdown](https://github.com/mysticmind/reversemarkdown-net) to produce high-quality GitHub Flavored Markdown.
 *   **System Tray App**: Runs silently in the background.
     *   **Info Bubbles**: Provides unobtrusive notifications upon successful conversion.
@@ -22,7 +22,7 @@
 
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/yourusername/ClipToMd.git
+    git clone https://github.com/pjanec/ClipToMd.git
     cd ClipToMd
     ```
 
@@ -38,18 +38,15 @@
 
 ## Usage
 
-1.  **Run** the application. You will see a small blue "M" icon in your system tray.
+1.  **Run** the application. You will see a small gray "M" icon in your system tray (starts Inactive).
+2.  **Double-click** the tray icon to Activate it (turns Blue).
 2.  **Right-click** the tray icon to configure auto-conversion modes:
     *   **Auto: VS Code Only** (Checked by default): Automatically converts when you copy from VS Code.
     *   **Auto: All HTML** (Unchecked by default): Automatically converts any HTML content found in the clipboard.
 3.  **Copy** something!
     *   If Auto-mode matches, you'll see a small "Auto-Converted" bubble.
-    *   Otherwise, press `Ctrl` + `Alt` + `M` to manually convert.
+    *   Otherwise, press `Ctrl` + `Shift` + `M` to toggle the tool Active/Inactive.
 4.  **Paste** (`Ctrl` + `V`) your perfectly formatted Markdown.
-
-## Contributing
-
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
 
 ## License
 
