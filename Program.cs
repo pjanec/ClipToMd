@@ -30,6 +30,7 @@ namespace VsCodeToMd
         public int HotkeyModifiers { get; set; } = (int)(KeyModifiers.Control | KeyModifiers.Shift);
         public bool AutoConvertVsCode { get; set; } = true;
         public bool AutoConvertAny { get; set; } = false;
+        public bool RemoveBackslashes { get; set; } = true;
     }
 
     public class SysTrayAppContext : ApplicationContext
@@ -96,6 +97,7 @@ namespace VsCodeToMd
             ((ToolStripMenuItem)_contextMenu.Items.Add("Active", null, ToggleActive)).Checked = false;
             ((ToolStripMenuItem)_contextMenu.Items.Add("Auto: VS Code Only", null, ToggleAutoConvertVsCode)).Checked = _settings.AutoConvertVsCode;
             ((ToolStripMenuItem)_contextMenu.Items.Add("Auto: All HTML", null, ToggleAutoConvertAny)).Checked = _settings.AutoConvertAny;
+            ((ToolStripMenuItem)_contextMenu.Items.Add("Remove Backslashes", null, ToggleRemoveBackslashes)).Checked = _settings.RemoveBackslashes;
             _contextMenu.Items.Add(new ToolStripSeparator());
             _contextMenu.Items.Add("Set Hotkey...", null, ShowConfig);
             _contextMenu.Items.Add("Exit", null, Exit);
@@ -214,6 +216,12 @@ namespace VsCodeToMd
             var converter = new ReverseMarkdown.Converter(config);
             string markdown = converter.Convert(cleanHtml);
 
+            // 4.1 Remove unnecessary backslashes if enabled
+            if (_settings.RemoveBackslashes)
+            {
+                markdown = RemoveUnnecessaryBackslashes(markdown);
+            }
+
             // 4. Place back on Clipboard
             try
             {
@@ -234,6 +242,16 @@ namespace VsCodeToMd
                 if (!isAuto)
                     _notifyIcon.ShowBalloonTip(3000, "Error", "Failed to set clipboard: " + ex.Message, ToolTipIcon.Error);
             }
+        }
+
+        private string RemoveUnnecessaryBackslashes(string markdown)
+        {
+            if (string.IsNullOrEmpty(markdown))
+                return markdown;
+
+            // Remove backslashes preceding these characters: ( ) [ ] < > + -
+            // Only remove if the backslash is not already escaped (not preceded by another backslash)
+            return Regex.Replace(markdown, @"(?<!\\)\\([(){}\[\]<>+\-_@#$%\^\*])", "$1", RegexOptions.Multiline);
         }
 
         private string RemoveVsCodeLinks(string html)
@@ -306,6 +324,13 @@ namespace VsCodeToMd
         {
             _settings.AutoConvertAny = !_settings.AutoConvertAny;
             ((ToolStripMenuItem)_contextMenu.Items[2]).Checked = _settings.AutoConvertAny;
+            SaveSettings();
+        }
+
+        private void ToggleRemoveBackslashes(object sender, EventArgs e)
+        {
+            _settings.RemoveBackslashes = !_settings.RemoveBackslashes;
+            ((ToolStripMenuItem)_contextMenu.Items[3]).Checked = _settings.RemoveBackslashes;
             SaveSettings();
         }
 
