@@ -3,6 +3,7 @@ using ReverseMarkdown.Converters;
 using System;
 using System.Drawing;
 using System.IO;
+using System.Net;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -31,6 +32,7 @@ namespace VsCodeToMd
         public bool AutoConvertVsCode { get; set; } = true;
         public bool AutoConvertAny { get; set; } = false;
         public bool RemoveBackslashes { get; set; } = true;
+        public bool DecodeHtmlEntities { get; set; } = true;
     }
 
     public class SysTrayAppContext : ApplicationContext
@@ -98,6 +100,7 @@ namespace VsCodeToMd
             ((ToolStripMenuItem)_contextMenu.Items.Add("Auto: VS Code Only", null, ToggleAutoConvertVsCode)).Checked = _settings.AutoConvertVsCode;
             ((ToolStripMenuItem)_contextMenu.Items.Add("Auto: All HTML", null, ToggleAutoConvertAny)).Checked = _settings.AutoConvertAny;
             ((ToolStripMenuItem)_contextMenu.Items.Add("Remove Backslashes", null, ToggleRemoveBackslashes)).Checked = _settings.RemoveBackslashes;
+            ((ToolStripMenuItem)_contextMenu.Items.Add("Decode HTML Entities", null, ToggleDecodeHtmlEntities)).Checked = _settings.DecodeHtmlEntities;
             _contextMenu.Items.Add(new ToolStripSeparator());
             _contextMenu.Items.Add("Set Hotkey...", null, ShowConfig);
             _contextMenu.Items.Add("Exit", null, Exit);
@@ -216,7 +219,13 @@ namespace VsCodeToMd
             var converter = new ReverseMarkdown.Converter(config);
             string markdown = converter.Convert(cleanHtml);
 
-            // 4.1 Remove unnecessary backslashes if enabled
+            // 4.1 Decode HTML entities if enabled (e.g., &gt; -> >, &amp; -> &)
+            if (_settings.DecodeHtmlEntities)
+            {
+                markdown = WebUtility.HtmlDecode(markdown);
+            }
+
+            // 4.2 Remove unnecessary backslashes if enabled
             if (_settings.RemoveBackslashes)
             {
                 markdown = RemoveUnnecessaryBackslashes(markdown);
@@ -331,6 +340,13 @@ namespace VsCodeToMd
         {
             _settings.RemoveBackslashes = !_settings.RemoveBackslashes;
             ((ToolStripMenuItem)_contextMenu.Items[3]).Checked = _settings.RemoveBackslashes;
+            SaveSettings();
+        }
+
+        private void ToggleDecodeHtmlEntities(object sender, EventArgs e)
+        {
+            _settings.DecodeHtmlEntities = !_settings.DecodeHtmlEntities;
+            ((ToolStripMenuItem)_contextMenu.Items[4]).Checked = _settings.DecodeHtmlEntities;
             SaveSettings();
         }
 
